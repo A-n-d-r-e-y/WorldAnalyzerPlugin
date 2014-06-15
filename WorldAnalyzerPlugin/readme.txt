@@ -1,0 +1,1 @@
+java -cp "F:\Users\MOPO3OB\Desktop\WorldAnalyzerPlugin.jar" lv.morozov.worldanalyzer.service.JDBCScansRepositoryIntegrationTest

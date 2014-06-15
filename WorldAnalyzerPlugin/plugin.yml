@@ -1,0 +1,11 @@
+name: WorldAnalyzer
+main: lv.morozov.worldanalyzer.WorldAnalyzerPlugin
+version: 1.0
+commands:
+  dump:
+    description: Dump world data on the screen
+    usage: /<command>
+  scan:
+    description: Dump world data into external database for further analysis
+    usage: /<command>
+

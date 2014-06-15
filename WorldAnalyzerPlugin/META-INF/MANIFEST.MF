@@ -1,0 +1,2 @@
+Manifest-Version: 1.0
+Class-Path: ./WorldAnalyzer/sqljdbc4.jar

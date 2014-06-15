@@ -1,0 +1,139 @@
+------------------------------------------------------------------------------
+create database test
+go
+------------------------------------------------------------------------------
+use [test]
+go
+------------------------------------------------------------------------------
+create table [dbo].[test__]
+(
+	[id] [int] NOT NULL,
+	[entity_type] [nvarchar](100) NULL,
+	[x] [float] NULL,
+	[y] [float] NULL,
+	[z] [float] NULL
+)
+go
+------------------------------------------------------------------------------
+create proc [dbo].[test]
+(
+	@id int,
+	@x float,
+	@y float,
+	@z float,
+	@entity_type nvarchar(100)
+) as
+begin
+	set nocount on;
+
+	insert into test__(id, entity_type, x, y, z)
+	select @id, @entity_type, @x, @y, @z;
+end
+go
+------------------------------------------------------------------------------
+create function [dbo].[getMultipointForEntityType](@entity_type nvarchar(100))
+returns table
+as return
+(
+	with [ranked_base] as
+	(
+		select *, rank() over(partition by entity_type order by id) [rank]
+		from [dbo].[test__]
+		where entity_type = @entity_type
+	)
+	,[recurson] as
+	(
+		select cast(N'MULTIPOINT (' as nvarchar(max)) [result], cast(0 as bigint) [rank]
+		union all
+		select r.[result] + '(' + cast(b.x as nvarchar(10)) + ' ' + cast(b.z as nvarchar(10)) + ')# ' [result], b.[rank]
+		from [recurson] r
+		join [ranked_base] b on r.[rank] + 1 = b.[rank]
+	)
+	select replace(replace(result, ')# (', '), ('), '#', ')') [value]
+	from [recurson]
+	where [rank] = (select max([rank]) from [ranked_base])
+)
+-- option(maxrecursion 0)
+go
+------------------------------------------------------------------------------
+create function [dbo].[grid_128x128_from_point] (@center_x float, @center_y float)
+returns table
+as return 
+( 
+--declare
+--	@center_x float = -20,
+--	@center_y float = 113;
+
+	with dim_x as
+	(
+		select (@center_x-128) [n], 1 [no]
+		union all
+		select [n] + 16 [n], [no] + 1
+		from dim_x
+		where [n] < (@center_x+128)
+	)
+	, dim_y as
+	(
+		select (@center_y-128) [n], 1 [no]
+		union all
+		select [n] + 16 [n], [no] + 1
+		from dim_y
+		where [n] < (@center_y+128)
+	)
+	,[vertical_base] as
+	(
+		select '(' + cast(d.n as nvarchar(10)) + ' ' + cast(@center_y-128 as nvarchar(10)) + ', ' + cast(d.n as nvarchar(10)) + ' ' + cast(@center_y+128 as nvarchar(10)) + ')' [line], [no]
+		from dim_x d
+	)
+	,[horizontal_base] as
+	(
+		select '(' + cast(@center_x-128 as nvarchar(10)) + ' ' + cast(d.n as nvarchar(10)) + ', ' + cast(@center_x+128 as nvarchar(10)) + ' ' + cast(d.n as nvarchar(10)) + ')' [line], [no] + 17 [no]
+		from dim_y d
+	)
+	,[recursion] as
+	(
+		select cast( 'MULTILINESTRING (' as nvarchar(max)) [value], 0 [no]
+		union all
+		select [value] + b.[line] + '# ', b.[no]
+		from [recursion] r
+		join (
+			select * from [vertical_base]
+			union all
+			select * from [horizontal_base]) as b on b.[no] = r.[no] + 1
+	)
+	select geometry::STGeomFromText(replace(replace(value, ')# (', '), ('), '#', ')'), 0) [value]
+	from [recursion]
+	where [no] = (select max([no]) from [horizontal_base])
+)
+go
+------------------------------------------------------------------------------
+create view [dbo].[map] as
+with [entities] as
+(
+	select distinct entity_type
+	from [dbo].[test__]
+)
+select e.entity_type
+, case e.entity_type
+	when 'PLAYER' then geometry::STGeomFromText(x.value, 0).STBuffer(1)
+	else geometry::STGeomFromText(x.value, 0).STBuffer(.5) end [points]
+from [entities] e
+cross apply dbo.getMultipointForEntityType(e.entity_type) x
+go
+------------------------------------------------------------------------------
+create view [dbo].[full_map] as
+select d.*
+from (
+	select
+		(select x from [dbo].[test__] where entity_type = 'PLAYER') [x]
+		, (select z from [dbo].[test__] where entity_type = 'PLAYER') [y]
+	) as c
+cross apply (
+	select 'RADIUS' [entity_type], geometry::STGeomFromText('POINT ('+cast(c.x as nvarchar(10))+' '+cast(c.y as nvarchar(10))+')', 0).STBuffer(128) [points]
+	union all
+	select 'GRID', [value] from [dbo].[grid_128x128_from_point](c.x, c.y)
+	union all
+	select * from [dbo].[map]) as d
+go
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
