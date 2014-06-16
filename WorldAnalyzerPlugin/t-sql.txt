@@ -25,6 +25,8 @@ create proc [dbo].[test]
 ) as
 begin
 	set nocount on;
+	
+	truncate table test__;
 
 	insert into test__(id, entity_type, x, y, z)
 	select @id, @entity_type, @x, @y, @z;
